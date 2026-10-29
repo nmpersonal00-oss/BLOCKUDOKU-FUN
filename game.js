@@ -17,30 +17,15 @@
   let hovered = null;
   let drag = null;
   let audioContext = null;
+  let renderedBoard = null;
+  let renderedPreview = new Map();
   let soundOn = safeRead(SOUND) !== 'off';
   let bestScore = Math.max(0,Number(safeRead(BEST) || safeRead('blockudoku-exact-best-v1') || '0') || 0);
 
   function safeRead(key){try{return localStorage.getItem(key);}catch{return null;}}
   function safeWrite(key,value){try{localStorage.setItem(key,value);}catch{}}
 
-  function signature(shape) {return shape.cells.map(pair=>pair.join(',')).sort().join('|');}
-  function findShape(coords) {
-    const sig = coords.map(pair=>pair.join(',')).sort().join('|');
-    const found = E.SHAPES.find(s=>signature(s)===sig);
-    if (!found) throw new Error('A starting piece is missing from the engine');
-    return found.id;
-  }
-  const FIRST_OFFER = [
-    findShape([[0,0],[1,0],[2,0],[0,1]]),
-    findShape([[0,0],[1,0],[0,1]]),
-    findShape([[1,0],[0,1],[1,1],[1,2]])
-  ];
-
-  function freshState() {
-    const next = E.newGame();
-    next.offer = FIRST_OFFER.slice();
-    return next;
-  }
+  function freshState() { return E.newGame(); }
   function loadState() {
     try {
       const s=JSON.parse(safeRead(SAVE) || 'null');
@@ -73,23 +58,28 @@
     boardElement.replaceChildren(frag);
   }
   function drawBoard() {
-    const previewMap=new Map();
+    if (renderedBoard !== state.board) {
+      for (let i=0;i<81;i++) {
+        const cell=cells[i],value=state.board[i];
+        cell.classList.remove('placed','color-1','color-2','color-3','color-4');
+        if(value) cell.classList.add('placed',`color-${value}`);
+      }
+      renderedBoard=state.board;
+    }
+    const next=new Map();
     if(hovered && selectedSlot!==null){
       const shape=E.shapeById(state.offer[selectedSlot]);
-      if(shape){
+      if(shape) {
         const valid=E.canPlace(state.board,shape,hovered.x,hovered.y);
         for(const [dx,dy] of shape.cells){
           const x=hovered.x+dx,y=hovered.y+dy;
-          if(x>=0&&x<9&&y>=0&&y<9)previewMap.set(y*9+x,valid?'valid':'invalid');
+          if(x>=0&&x<9&&y>=0&&y<9)next.set(y*9+x,valid?'valid':'invalid');
         }
       }
     }
-    for(let i=0;i<81;i++){
-      const el=cells[i];
-      el.classList.remove('placed','color-1','color-2','color-3','color-4','valid','invalid');
-      if(state.board[i])el.classList.add('placed',`color-${state.board[i]}`);
-      const p=previewMap.get(i);if(p)el.classList.add(p);
-    }
+    for(const [i,klass] of renderedPreview)if(next.get(i)!==klass)cells[i].classList.remove(klass);
+    for(const [i,klass] of next)if(renderedPreview.get(i)!==klass)cells[i].classList.add(klass);
+    renderedPreview=next;
   }
   function pieceUnit(shape,slotWidth){
     const gap=3;
@@ -141,13 +131,12 @@
   function renderAll(){drawStats();drawBoard();drawTray();}
 
   function setSelection(i){
-    selectedSlot=i===selectedSlot?null:i;
+    selectedSlot=i;
     hovered=null;
     trayElement.querySelectorAll('.piece-slot').forEach((node,j)=>node.classList.toggle('selected',j===selectedSlot));
     drawBoard();
   }
-  function boardAnchor(px,py,shape,fromTouch=false){
-    const rect=boardElement.getBoundingClientRect();
+  function boardAnchor(px,py,shape,fromTouch=false,rect=boardElement.getBoundingClientRect()){
     // Lift under the finger so the piece is visible while dragging on touchscreens.
     const liftedY=py-(fromTouch?58:0);
     if(px<rect.left||px>rect.right||liftedY<rect.top||liftedY>rect.bottom)return null;
@@ -178,36 +167,38 @@
     const slot=e.target.closest('.piece-slot');if(!slot||slot.disabled)return;
     const i=Number(slot.dataset.slot);
     setSelection(i);
-    if(selectedSlot===null)return;
-    const shape=E.shapeById(state.offer[selectedSlot]);
-    drag={pointer:e.pointerId,slot:i,shape,source:slot,startX:e.clientX,startY:e.clientY,x:e.clientX,y:e.clientY,touch:e.pointerType==='touch',moved:false,ghost:null};
-    // Keep the source element mounted for the entire pointer capture lifetime.
+    const shape=E.shapeById(state.offer[selectedSlot]);if(!shape)return;
+    const unit=Math.min(55,Math.floor(boardElement.getBoundingClientRect().width/9));
+    const ghost=makePieceGrid(shape,colors[i],unit,true);
+    dragLayer.replaceChildren(ghost);
+    const rect=boardElement.getBoundingClientRect();
+    drag={pointer:e.pointerId,slot:i,shape,source:slot,startX:e.clientX,startY:e.clientY,x:e.clientX,y:e.clientY,
+      touch:e.pointerType==='touch',moved:false,ghost,boardRect:rect};
+    moveGhost(drag,e.clientX,e.clientY);
     try{slot.setPointerCapture(e.pointerId);}catch{}
     if(e.cancelable)e.preventDefault();
+  }
+  function moveGhost(d,px,py){
+    const gy=py-(d.touch?58:0);
+    d.ghost.style.transform=`translate3d(${px}px,${gy}px,0) translate(-50%,-50%)`;
   }
   function dragPointerMove(e){
     if(!drag||e.pointerId!==drag.pointer)return;
     drag.x=e.clientX;drag.y=e.clientY;
-    if(!drag.moved&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)>7){
-      drag.moved=true;
-      const unit=Math.min(55,Math.floor(boardElement.getBoundingClientRect().width/9));
-      drag.ghost=makePieceGrid(drag.shape,colors[drag.slot],unit,true);
-      dragLayer.appendChild(drag.ghost);
-    }
+    if(!drag.moved&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)>3)drag.moved=true;
+    moveGhost(drag,e.clientX,e.clientY);
     if(!drag.moved)return;
     if(e.cancelable)e.preventDefault();
-    drag.ghost.style.left=e.clientX+'px';
-    drag.ghost.style.top=(e.clientY-(drag.touch?58:0))+'px';
-    hovered=boardAnchor(e.clientX,e.clientY,drag.shape,drag.touch);
-    drawBoard();
+    const anchor=boardAnchor(e.clientX,e.clientY,drag.shape,drag.touch,drag.boardRect);
+    if((hovered?.x??null)!==(anchor?.x??null)||(hovered?.y??null)!==(anchor?.y??null)){hovered=anchor;drawBoard();}
   }
   function endDrag(e){
     if(!drag||e.pointerId!==drag.pointer)return;
     const d=drag;
-    // Clean up after resolving the drop so no tray re-render races with pointer capture.
-    const anchor=d.moved?boardAnchor(e.clientX,e.clientY,d.shape,d.touch):null;
+    const moved=d.moved||Math.hypot(e.clientX-d.startX,e.clientY-d.startY)>3;
+    const anchor=moved?boardAnchor(e.clientX,e.clientY,d.shape,d.touch,d.boardRect):null;
     drag=null;dragLayer.replaceChildren();
-    if(d.moved && anchor && tryPlace(anchor.x,anchor.y))return;
+    if(moved&&anchor&&tryPlace(anchor.x,anchor.y))return;
     hovered=null;drawBoard();
   }
   function cancelDrag(){drag=null;dragLayer.replaceChildren();hovered=null;drawBoard();}
@@ -270,7 +261,8 @@
   boardElement.addEventListener('pointermove',e=>{
     if(drag||selectedSlot===null||e.pointerType!=='mouse')return;
     const shape=E.shapeById(state.offer[selectedSlot]);
-    hovered=shape?boardAnchor(e.clientX,e.clientY,shape):null;drawBoard();
+    const anchor=shape?boardAnchor(e.clientX,e.clientY,shape):null;
+    if((hovered?.x??null)!==(anchor?.x??null)||(hovered?.y??null)!==(anchor?.y??null)){hovered=anchor;drawBoard();}
   });
   boardElement.addEventListener('pointerleave',()=>{if(!drag){hovered=null;drawBoard();}});
   byId('soundButton').addEventListener('click',toggleSound);
