@@ -45,7 +45,80 @@
       shape = rotate(shape);
     }
   }
+  // Keep the original shapes and their numeric IDs first: saved games from earlier
+  // versions must continue to deserialize to the same pieces.
+  function addShape(points) {
+    const cells = normalize(points);
+    const key = cells.map(p => p.join(',')).join(';');
+    if (signatures.has(key)) return;
+    signatures.add(key);
+    SHAPES.push(Object.freeze({
+      id: SHAPES.length,
+      cells: Object.freeze(cells.map(p => Object.freeze(p))),
+      width: Math.max(...cells.map(p => p[0])) + 1,
+      height: Math.max(...cells.map(p => p[1])) + 1,
+      size: cells.length
+    }));
+  }
+  // Full set of *fixed* connected polyominoes of 1–5 squares. Unlike a
+  // handful of rotated templates, this includes mirrored hooks, zigzags,
+  // skewed T/F/W shapes, the full family of pentominoes, and their rotations.
+  // A fixed orientation is generated in the tray; players cannot rotate it.
+  let generation = [[[0, 0]]];
+  for (let size = 1; size <= 5; size++) {
+    if (size > 1) {
+      const next = new Map();
+      for (const points of generation) for (const [x, y] of points) {
+        for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+          const nx=x+dx, ny=y+dy;
+          if (points.some(([px,py]) => px===nx && py===ny)) continue;
+          const shape = normalize([...points, [nx,ny]]);
+          next.set(shape.map(p => p.join(',')).join(';'),shape);
+        }
+      }
+      generation = [...next.values()];
+    }
+    for (const points of generation) addShape(points);
+  }
+  // Larger distinctive pieces, appearing increasingly often in later levels.
+  // Shapes and mirrored orientations are generated without increasing the
+  // count of near-duplicates in a single three-piece offer.
+  const largeSeeds = [
+    [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1]], // 2x3 slab
+    [[0,0],[1,0],[2,0],[3,0],[0,1],[0,2]], // tall corner
+    [[0,0],[1,0],[2,0],[3,0],[1,1],[1,2]], // broad T
+    [[0,0],[1,0],[1,1],[2,1],[2,2],[3,2]], // long stair
+    [[0,0],[1,0],[0,1],[1,1],[1,2],[2,2]], // double square offset
+    [[0,0],[1,0],[2,0],[0,1],[2,1],[2,2]], // open corner
+    [[0,0],[1,0],[2,0],[0,1],[1,1],[1,2]], // arrow/piece
+    [[0,0],[0,1],[1,1],[2,1],[2,2],[3,2]], // snake
+    [[0,0],[1,0],[2,0],[3,0],[4,0],[2,1]], // long T
+    [[0,0],[1,0],[2,0],[3,0],[3,1],[3,2]], // long L
+    [[0,0],[1,0],[2,0],[0,1],[1,1],[0,2]], // tapered corner
+    [[0,0],[1,0],[0,1],[1,1],[2,1],[2,2]], // block twist
+    [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[1,2]], // seven-cell crown
+    [[0,0],[1,0],[2,0],[3,0],[0,1],[0,2],[0,3]], // long hook
+    [[0,0],[1,0],[2,0],[1,1],[1,2],[1,3],[1,4]] // long T cross
+  ];
+  for (const seed of largeSeeds) {
+    for (const reflection of [false,true]) {
+      let rotated = reflection ? seed.map(([x,y]) => [-x,y]) : seed;
+      for (let r=0;r<4;r++) { addShape(rotated);rotated=rotate(rotated); }
+    }
+  }
   Object.freeze(SHAPES);
+  const familyKey = shape => {
+    const keys = [];
+    for (const reflected of [false,true]) {
+      let cells = reflected ? shape.cells.map(([x,y])=>[-x,y]) : shape.cells;
+      for (let i=0;i<4;i++) {
+        keys.push(normalize(cells).map(p=>p.join(',')).join(';'));
+        cells = rotate(cells);
+      }
+    }
+    return keys.sort()[0];
+  };
+  const FAMILY_KEYS=SHAPES.map(familyKey);
 
   const shapeById = id => Number.isInteger(id) ? SHAPES[id] || null : null;
   function canPlace(board, shape, x, y) {
@@ -88,18 +161,50 @@
     while (score >= levelStart(level+1)) level++;
     return level;
   }
-  function maxShapeSize(level) { return level < 3 ? 4 : level < 6 ? 5 : level < 10 ? 6 : 9; }
-  function pickShape(level,rng) {
-    const choices=SHAPES.filter(s => s.size <= maxShapeSize(level));
-    const weighted=choices.filter(s => s.size <= 4 || rng() < (s.size === 9 ? .12 : s.size >= 6 ? .30 : .65));
-    const pool=weighted.length ? weighted : choices;
-    return pool[Math.min(pool.length-1,Math.floor(rng()*pool.length))].id;
+  function maxShapeSize(level) { return level < 3 ? 5 : level < 8 ? 6 : 9; }
+  function pickShape(level, rng=Math.random, excluded=new Set(), excludedFamilies=new Set()) {
+    // Common pieces remain common, but interesting bends and mirrored shapes
+    // appear from the very beginning. Larger pieces slowly enter circulation.
+    const max = maxShapeSize(level);
+    const difficulty = level < 3 ? 0 : level < 8 ? 1 : 2;
+    const weights = difficulty===0
+      ? [0,7,10,21,28,34,0,0,0,0]
+      : difficulty===1
+        ? [0,5,8,16,28,30,13,0,0,0]
+        : [0,5,6,15,24,29,15,5,0,1];
+    const pool = SHAPES.filter(s => s.size <= max && !excluded.has(s.id) && !excludedFamilies.has(FAMILY_KEYS[s.id]));
+    if (!pool.length) return SHAPES[0].id;
+    // Weight SIZE groups rather than individual IDs so the 63 different
+    // pentominoes don't drown out singles, bars and smaller shapes.
+    let total = 0;
+    const groups = [];
+    for (let size=1;size<=max;size++) {
+      const variants = pool.filter(s => s.size === size);
+      if (variants.length && weights[size]) {
+        total += weights[size];
+        groups.push({variants,upper:total});
+      }
+    }
+    const roll = rng()*total;
+    const group = groups.find(g => roll < g.upper) || groups[groups.length-1];
+    const index = Math.min(group.variants.length-1,Math.floor(rng()*group.variants.length));
+    return group.variants[index].id;
   }
   function newOffer(board, level, rng=Math.random) {
-    const offer=Array.from({length:3},()=>pickShape(level,rng));
+    const selected = new Set();
+    const selectedFamilies = new Set();
+    const offer = [];
+    for (let i=0;i<3;i++) {
+      const id = pickShape(level,rng,selected,selectedFamilies);
+      offer.push(id);
+      selected.add(id);
+      selectedFamilies.add(FAMILY_KEYS[id]);
+    }
+    // Three genuinely different silhouettes per tray, while preserving the
+    // classic possibility of losing if there is truly nowhere for a piece.
     if (!offer.some(id=>canFitSomewhere(board,SHAPES[id]))) {
-      const possible=SHAPES.filter(s=>s.size<=4 && canFitSomewhere(board,s));
-      if (possible.length) offer[0]=possible[Math.min(possible.length-1,Math.floor(rng()*possible.length))].id;
+      const possible = SHAPES.filter(s => s.size<=5 && !selected.has(s.id) && canFitSomewhere(board,s));
+      if (possible.length) offer[0] = possible[Math.min(possible.length-1,Math.floor(rng()*possible.length))].id;
     }
     return offer;
   }
