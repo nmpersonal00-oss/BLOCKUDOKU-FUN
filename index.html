@@ -1,54 +1,73 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#080b20">
-<meta name="description" content="Infinite Glow: an endless neon 9×9 block puzzle with combos, streaks, and unlimited levels.">
-<title>Infinite Glow — Blockudoku</title>
-<link rel="stylesheet" href="style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#12091f">
+  <title>Blockudoku</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="cosmos" aria-hidden="true"></div>
-<main class="page">
-  <header class="topbar"><a class="brand" href="./" aria-label="Infinite Glow Home"><span class="brand-icon">✦</span><span><strong>BLOCKUDOKU</strong><small>INFINITE GLOW EDITION</small></span></a><span class="endless"><i></i> ENDLESS MODE</span></header>
-  <section class="hero"><div class="eyebrow">✧ A LITTLE COSMIC PUZZLE MAGIC ✧</div><h1>Infinite <em>Glow</em></h1><p>Find your flow. Clear the stars. Keep going forever.</p></section>
-  <div class="layout">
-    <section class="game-card" aria-label="Blockudoku game">
-      <div class="stats">
-        <div class="stat score-stat"><span>SCORE</span><strong id="score">0</strong></div>
-        <div class="stat"><span>BEST SCORE</span><strong id="best">0</strong></div>
-        <div class="stat"><span>LEVEL</span><strong id="level">1</strong></div>
+  <main class="app-shell" aria-label="Blockudoku game">
+    <div class="top-row">
+      <button class="glass-icon-button" id="homeButton" aria-label="Home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5.5 9.5V21h13V9.5"></path></svg>
+      </button>
+      <div class="top-actions">
+        <button class="glass-icon-button" id="soundButton" aria-label="Toggle sound" aria-pressed="true">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15h4l5 4V5L8 9H4z"></path><path d="M17 8.5a5.5 5.5 0 010 7"></path></svg>
+        </button>
+        <button class="glass-icon-button" id="settingsButton" aria-label="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 100 7 3.5 3.5 0 000-7z"></path><path d="M19.4 13.5a1 1 0 00.2 1.1l.1.1a2 2 0 01-2.8 2.8l-.1-.1a1 1 0 00-1.1-.2 1 1 0 00-.6.9V19a2 2 0 01-4 0v-.2a1 1 0 00-.6-.9 1 1 0 00-1.1.2l-.1.1a2 2 0 01-2.8-2.8l.1-.1a1 1 0 00.2-1.1 1 1 0 00-.9-.6H5a2 2 0 010-4h.2a1 1 0 00.9-.6 1 1 0 00-.2-1.1l-.1-.1a2 2 0 012.8-2.8l.1.1a1 1 0 001.1.2 1 1 0 00.6-.9V5a2 2 0 014 0v.2a1 1 0 00.6.9 1 1 0 001.1-.2l.1-.1a2 2 0 012.8 2.8l-.1.1a1 1 0 00-.2 1.1 1 1 0 00.9.6h.2a2 2 0 010 4h-.2a1 1 0 00-.9.6z"></path></svg>
+        </button>
       </div>
-      <div class="level-line"><strong id="level-name">LEVEL 1 · COSMIC BEGINNER</strong><span id="level-progress">0 / 250 XP</span></div>
-      <div id="progress" role="progressbar" aria-label="Level progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" class="progress"><div id="progress-bar"></div></div>
-      <div id="board-shell" class="board-shell"><div id="board" class="board" role="grid" aria-label="Nine by nine block puzzle board"></div><div id="toast-layer" class="toast-layer" aria-hidden="true"></div></div>
-      <p id="hint" class="hint" aria-live="polite">Choose a piece, then tap the board or drag it into place.</p>
-      <div class="tray-top"><strong>YOUR PIECES</strong><small>Use all 3 to refresh</small></div>
-      <div id="tray" class="tray" aria-label="Pieces to place"></div>
-      <div class="actions"><button id="new-button" class="action primary" type="button">✦ New game</button><button id="sound-button" class="action" type="button" aria-pressed="true">♫ Sound on</button><button id="help-button" class="action" type="button">? How to play</button></div>
+    </div>
+
+    <section class="stats-panel glass-panel" aria-label="Game stats">
+      <div class="stat-pill">
+        <div class="stat-icon lavender">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8l2.47 5 5.53.8-4 3.9.94 5.5L12 16.3 7.06 19l.94-5.5-4-3.9 5.53-.8z"></path></svg>
+        </div>
+        <div class="stat-value" id="scoreValue">0</div>
+      </div>
+      <div class="stat-pill">
+        <div class="stat-icon gold">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18h16l-1.4-8-4.1 3.2L12 7 9.5 13.2 5.4 10z"></path></svg>
+        </div>
+        <div class="stat-value" id="bestValue">0</div>
+      </div>
+      <div class="stat-pill">
+        <div class="stat-icon lilac">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9"></path><path d="M12 19V5"></path><path d="M19 19v-7"></path></svg>
+        </div>
+        <div class="stat-value" id="levelValue">1</div>
+      </div>
     </section>
-    <aside class="guide">
-      <div class="kicker">THE CONSTELLATION GUIDE</div><h2>Make space<br>for <em>magic.</em></h2>
-      <p class="lead">A relaxing puzzle with a tricky little twist. Place the shapes thoughtfully, watch them light up, and keep your board breathing.</p>
-      <div class="guide-steps">
-        <p><b>01</b><span>Choose one of your <strong>three pieces</strong> and place it in empty cells. Pieces cannot be rotated.</span></p>
-        <p><b>02</b><span>Complete a <strong>row, column, or 3×3 square</strong> to clear it from the board.</span></p>
-        <p><b>03</b><span>Clear several areas at once for <strong>combo</strong> points. Clear on consecutive moves to build a <strong>streak.</strong></span></p>
-        <p><b>∞</b><span><strong>No level cap.</strong> A run ends when none of the remaining pieces fits.</span></p>
+
+    <section class="board-panel glass-panel">
+      <div class="board-frame">
+        <div id="board" class="board" role="grid" aria-label="9 by 9 game board"></div>
       </div>
-      <div class="divider"></div>
-      <h3>HOW POINTS ADD UP</h3>
-      <div class="rules"><div><span>Each square placed</span><strong>+1</strong></div><div><span>Each unique square cleared</span><strong>+2 × streak</strong></div><div><span>Each additional area cleared</span><strong>+12</strong></div><div><span>Consecutive clear multiplier</span><strong>×1 to ×5</strong></div><div><span>Move without a clear</span><strong>Reset streak</strong></div></div>
-      <div class="streak" id="streak">✧ Clear streak · ×1</div>
-      <div class="divider"></div>
-      <h3>YOUR JOURNEY</h3><div class="ministats"><div><strong id="areas">0</strong><small>AREAS CLEARED</small></div><div><strong id="moves">0</strong><small>PIECES PLACED</small></div><div><strong id="peak">0</strong><small>BEST STREAK</small></div><div><strong id="record-level">1</strong><small>HIGHEST LEVEL</small></div></div>
-    </aside>
+    </section>
+
+    <section class="tray-panel glass-panel" aria-label="Available pieces">
+      <div class="tray" id="tray"></div>
+    </section>
+  </main>
+
+  <div class="drag-layer" id="dragLayer" aria-hidden="true"></div>
+
+  <div class="modal-backdrop" id="settingsModal" hidden>
+    <div class="modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <h2 id="settingsTitle">Settings</h2>
+      <div class="modal-actions">
+        <button class="modal-button" id="toggleSoundModal">Sound: On</button>
+        <button class="modal-button" id="restartGameButton">Restart Game</button>
+        <button class="modal-button" id="closeSettingsButton">Close</button>
+      </div>
+    </div>
   </div>
-  <footer>Made with stardust ✧ Progress saves automatically in this browser · No timer, no level limit</footer>
-</main>
-<div id="piece-ghost" class="piece-ghost" aria-hidden="true"></div>
-<div id="dialog-backdrop" class="dialog-backdrop" hidden><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title"><div id="dialog-icon" class="dialog-icon">✧</div><h2 id="dialog-title">New game?</h2><div id="dialog-body"></div><div id="dialog-actions" class="dialog-actions"></div></div></div>
-<script src="engine.js"></script><script src="game.js"></script>
+
+  <script src="game.js"></script>
 </body>
 </html>

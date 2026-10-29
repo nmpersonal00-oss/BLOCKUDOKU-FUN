@@ -1,219 +1,561 @@
-/* Infinite Glow Blockudoku — UI, animations, input, local saves, and audio. */
-(function(){
-'use strict';
-const E=window.BlockudokuEngine;
-const STORAGE='infinite-glow-blockudoku-state-v2';
-const RECORDS='infinite-glow-blockudoku-records-v2';
-const SOUND='infinite-glow-blockudoku-sound-v2';
-const $=id=>document.getElementById(id);
-const tray=$('tray'),board=$('board'),ghost=$('piece-ghost'),modal=$('dialog-backdrop');
-const cellEls=[];
-let game=E.newGame(),records={best:0,highestLevel:1},selected=null,preview=null,drag=null,audio=null;
-let sound=true,clearing=new Set(),animationId=0,gameOverTimer=0;
-const fmt=n=>n.toLocaleString('en-US');
-function tryRead(key){try{return JSON.parse(localStorage.getItem(key));}catch{return null;}}
-function save(){
-  try{localStorage.setItem(STORAGE,JSON.stringify(game));localStorage.setItem(RECORDS,JSON.stringify(records));}catch{}
-}
-function load(){
-  const rec=tryRead(RECORDS);
-  if(rec&&Number.isSafeInteger(rec.best)&&rec.best>=0&&Number.isSafeInteger(rec.highestLevel)&&rec.highestLevel>=1) records=rec;
-  const state=tryRead(STORAGE);
-  if(E.validState(state)) game=state;
-  const soundChoice=tryRead(SOUND);sound=soundChoice!==false;
-  records.best=Math.max(records.best,game.score);
-  records.highestLevel=Math.max(records.highestLevel,game.level);
+(() => {
+  'use strict';
+
+  const SAVE_KEY = 'blockudoku-exact-save-v1';
+  const BEST_KEY = 'blockudoku-exact-best-v1';
+  const SOUND_KEY = 'blockudoku-exact-sound-v1';
+  const BOARD_SIZE = 9;
+  const COLORS = ['purple', 'pink', 'blue'];
+
+  const SHAPES = [
+    [[0,0]],
+    [[0,0],[1,0]],
+    [[0,0],[1,0],[2,0]],
+    [[0,0],[0,1]],
+    [[0,0],[0,1],[0,2]],
+    [[0,0],[1,0],[0,1]],
+    [[0,0],[1,0],[2,0],[0,1]],
+    [[0,0],[1,0],[2,0],[1,1]],
+    [[0,0],[1,0],[0,1],[1,1]],
+    [[1,0],[0,1],[1,1]],
+    [[0,0],[0,1],[0,2],[1,2]],
+    [[0,0],[1,0],[2,0],[3,0]],
+    [[0,0],[0,1],[0,2],[0,3]],
+    [[0,0],[1,0],[2,0],[3,0],[4,0]],
+    [[0,0],[0,1],[0,2],[0,3],[0,4]],
+    [[0,0],[1,0],[2,0],[0,1],[0,2]],
+    [[0,0],[1,0],[2,0],[1,1],[1,2]],
+    [[0,0],[1,0],[0,1],[1,1],[0,2]],
+    [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1]],
+    [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2]]
+  ].map(normalizeShape);
+
+  const els = {
+    board: document.getElementById('board'),
+    tray: document.getElementById('tray'),
+    score: document.getElementById('scoreValue'),
+    best: document.getElementById('bestValue'),
+    level: document.getElementById('levelValue'),
+    soundButton: document.getElementById('soundButton'),
+    settingsButton: document.getElementById('settingsButton'),
+    homeButton: document.getElementById('homeButton'),
+    modal: document.getElementById('settingsModal'),
+    toggleSoundModal: document.getElementById('toggleSoundModal'),
+    restartGameButton: document.getElementById('restartGameButton'),
+    closeSettingsButton: document.getElementById('closeSettingsButton'),
+    dragLayer: document.getElementById('dragLayer')
+  };
+
+  let soundOn = localStorage.getItem(SOUND_KEY) !== 'off';
+  let bestScore = Math.max(0, Number(localStorage.getItem(BEST_KEY) || 0));
+  let game = loadGame() || newGameState();
+  let selectedPieceId = null;
+  let preview = null;
+  let dragState = null;
+  let audioCtx = null;
+
   render();
-  if(game.gameOver)setTimeout(()=>{if(game.gameOver)showGameOver();},400);
-}
-function makeBoard(){
-  const fragment=document.createDocumentFragment();
-  for(let i=0;i<81;i++){
-    const b=document.createElement('button');b.type='button';b.dataset.index=i;
-    b.setAttribute('role','gridcell');b.setAttribute('aria-label',`Row ${Math.floor(i/9)+1}, column ${i%9+1}`);
-    cellEls.push(b);fragment.appendChild(b);
+  bindEvents();
+
+  function normalizeShape(cells) {
+    const minX = Math.min(...cells.map(([x]) => x));
+    const minY = Math.min(...cells.map(([,y]) => y));
+    const normalized = cells.map(([x, y]) => [x - minX, y - minY]).sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+    const width = Math.max(...normalized.map(([x]) => x)) + 1;
+    const height = Math.max(...normalized.map(([,y]) => y)) + 1;
+    return { cells: normalized, width, height, size: normalized.length };
   }
-  board.appendChild(fragment);
-}
-function shapeElement(shape,color,tileSize=22){
-  const el=document.createElement('div');el.className='shape';
-  el.style.setProperty('--cols',shape.width);el.style.setProperty('--rows',shape.height);el.style.setProperty('--tile',tileSize+'px');
-  const coords=new Set(shape.cells.map(p=>p.join(',')));
-  for(let y=0;y<shape.height;y++)for(let x=0;x<shape.width;x++){
-    const t=document.createElement('i');t.className='shape-tile '+(coords.has(x+','+y)?'c'+color:'empty');el.appendChild(t);
+
+  function newGameState() {
+    return {
+      board: Array.from({ length: BOARD_SIZE * BOARD_SIZE }, () => null),
+      tray: createTray(),
+      score: 0,
+      level: 1,
+      streak: 0,
+      moves: 0,
+      over: false
+    };
   }
-  return el;
-}
-function renderTray(){
-  const fragment=document.createDocumentFragment();
-  game.offer.forEach((id,index)=>{
-    const shape=E.shapeById(id),button=document.createElement('button');
-    button.type='button';button.className='slot'+(selected===index?' selected':'');
-    button.dataset.slot=index;button.disabled=!shape||game.gameOver;
-    button.setAttribute('aria-label',shape?`Piece ${index+1}: ${shape.size} square blocks`:`Piece ${index+1}: already used`);
-    if(shape){const size=shape.width>=5?16:shape.width>=4?19:shape.width>=3?21:24;
-      button.appendChild(shapeElement(shape,index%4+1,size));}
-    fragment.appendChild(button);
-  });
-  tray.replaceChildren(fragment);
-}
-function highlightSlots(){for(const node of tray.children)node.classList.toggle('selected',Number(node.dataset.slot)===selected);}
-function getPreviewIndices(){
-  if(!preview||selected===null)return {indices:new Set(),valid:false};
-  const shape=E.shapeById(game.offer[selected]);if(!shape)return {indices:new Set(),valid:false};
-  const valid=E.canPlace(game.board,shape,preview.x,preview.y);
-  const indices=new Set();
-  for(const [dx,dy] of shape.cells){const x=preview.x+dx,y=preview.y+dy;if(x>=0&&x<9&&y>=0&&y<9)indices.add(y*9+x);}
-  return {indices,valid};
-}
-function renderBoard(){
-  const {indices,valid}=getPreviewIndices();
-  for(let i=0;i<81;i++){
-    const cell=cellEls[i],value=game.board[i],x=i%9,y=Math.floor(i/9);
-    cell.className='cell'+((Math.floor(x/3)+Math.floor(y/3))%2?' zone':'')+
-      ((x===2||x===5)?' right-edge':'')+((y===2||y===5)?' bottom-edge':'')+
-      (value?' filled c'+value:'')+
-      (indices.has(i)?' preview '+(valid?'good':'bad'):'')+
-      (clearing.has(i)?' just-cleared':'');
-    cell.setAttribute('aria-label',`Row ${y+1}, column ${x+1}, ${value?'occupied':'empty'}`);
+
+  function createPiece(shapeIndex) {
+    return {
+      id: cryptoRandomId(),
+      shapeIndex,
+      shape: SHAPES[shapeIndex],
+      color: COLORS[Math.floor(Math.random() * COLORS.length)]
+    };
   }
-}
-function levelTitle(l){return l<3?'COSMIC BEGINNER':l<6?'STAR SEEKER':l<10?'NOVA DREAMER':l<16?'GALAXY KEEPER':'INFINITE MASTER';}
-function render(){
-  $('score').textContent=fmt(game.score);$('best').textContent=fmt(records.best);$('level').textContent=fmt(game.level);
-  $('level-name').textContent=`LEVEL ${fmt(game.level)} · ${levelTitle(game.level)}`;
-  const start=E.levelStart(game.level),goal=E.levelStart(game.level+1)-start,current=game.score-start;
-  const fraction=Math.max(0,Math.min(1,current/goal));
-  $('progress-bar').style.width=(fraction*100)+'%';$('progress').setAttribute('aria-valuenow',Math.floor(fraction*100));
-  $('level-progress').textContent=`${fmt(Math.max(0,current))} / ${fmt(goal)} XP`;
-  $('areas').textContent=fmt(game.clearedAreas);$('moves').textContent=fmt(game.moves);$('peak').textContent=fmt(game.bestStreak);$('record-level').textContent=fmt(records.highestLevel);
-  $('streak').textContent='✧ Clear streak · ×'+(game.streak?Math.min(5,game.streak):1)+(game.streak>5?' MAX':'');
-  $('hint').textContent=game.gameOver?'No more shapes can fit. Start a new constellation!':selected===null?'Choose a piece, then tap the board or drag it into place.':'Tap the top-left destination cell, or drag your piece into place.';
-  $('sound-button').textContent=sound?'♫ Sound on':'♫ Sound off';$('sound-button').setAttribute('aria-pressed',String(sound));
-  renderBoard();renderTray();
-}
-function previewAt(x,y){if(preview&&preview.x===x&&preview.y===y)return;preview={x,y};renderBoard();}
-function clearPreview(){if(!preview)return;preview=null;renderBoard();}
-function cellAt(clientX,clientY){const r=board.getBoundingClientRect();
-  if(clientX<r.left||clientX>=r.right||clientY<r.top||clientY>=r.bottom)return null;
-  return {x:Math.min(8,Math.floor((clientX-r.left)/(r.width/9))),y:Math.min(8,Math.floor((clientY-r.top)/(r.height/9)))};
-}
-function dragAnchor(clientX,clientY,touch){
-  if(selected===null)return null;const shape=E.shapeById(game.offer[selected]);if(!shape)return null;
-  const targetY=clientY-(touch?52:0),r=board.getBoundingClientRect();
-  if(clientX<r.left-12||clientX>r.right+12||targetY<r.top-12||targetY>r.bottom+12)return null;
-  const s=r.width/9;
-  return {x:Math.round((clientX-r.left)/s-shape.width/2),y:Math.round((targetY-r.top)/s-shape.height/2)};
-}
-function moveGhost(clientX,clientY,touch){ghost.style.left=clientX+'px';ghost.style.top=(clientY-(touch?52:0))+'px';}
-function showGhost(){
-  ghost.replaceChildren();const shape=E.shapeById(game.offer[selected]);if(!shape)return;
-  const slot=selected===null?0:selected;
-  ghost.appendChild(shapeElement(shape,slot%4+1,28));ghost.classList.add('visible');
-}
-function hideGhost(){ghost.classList.remove('visible');ghost.replaceChildren();}
-function beginDrag(event){
-  const slot=event.target.closest('.slot');if(!slot||slot.disabled||game.gameOver||!modal.hidden)return;
-  if(event.button!==undefined&&event.button!==0)return;
-  const index=Number(slot.dataset.slot);selected=index;clearPreview();highlightSlots();
-  drag={pointerId:event.pointerId,x:event.clientX,y:event.clientY,touch:event.pointerType==='touch',moved:false};
-}
-tray.addEventListener('pointerdown',beginDrag);
-document.addEventListener('pointermove',event=>{
-  if(!drag||event.pointerId!==drag.pointerId)return;
-  if(!drag.moved&&Math.hypot(event.clientX-drag.x,event.clientY-drag.y)>8){drag.moved=true;showGhost();}
-  if(drag.moved){if(event.cancelable)event.preventDefault();moveGhost(event.clientX,event.clientY,drag.touch);
-    const p=dragAnchor(event.clientX,event.clientY,drag.touch);if(p)previewAt(p.x,p.y);else clearPreview();}
-},{passive:false});
-document.addEventListener('pointerup',event=>{
-  if(!drag||event.pointerId!==drag.pointerId)return;
-  const last=drag;drag=null;hideGhost();
-  if(last.moved){const p=dragAnchor(event.clientX,event.clientY,last.touch);
-    if(p&&!placeAt(selected,p.x,p.y)){$('hint').textContent='That position is blocked. Try another space.';}
-    clearPreview();}
-});
-document.addEventListener('pointercancel',()=>{drag=null;hideGhost();clearPreview();});
-tray.addEventListener('click',event=>{ // Keyboard-generated clicks have detail 0; mouse/touch handled by pointer events.
-  const slot=event.target.closest('.slot');if(!slot||slot.disabled||event.detail!==0)return;
-  selected=Number(slot.dataset.slot);clearPreview();highlightSlots();$('hint').textContent='Choose a top-left destination cell on the board.';
-});
-board.addEventListener('pointermove',event=>{
-  if(drag||selected===null||event.pointerType!=='mouse')return;
-  const p=cellAt(event.clientX,event.clientY);if(p)previewAt(p.x,p.y);
-});
-board.addEventListener('pointerleave',()=>{if(!drag)clearPreview();});
-board.addEventListener('click',event=>{
-  if(selected===null||game.gameOver||!modal.hidden||drag)return;
-  const cell=event.target.closest('.cell');if(!cell)return;
-  const index=Number(cell.dataset.index),x=index%9,y=Math.floor(index/9);
-  if(!placeAt(selected,x,y)){$('hint').textContent='That shape does not fit there. Try another space.';}
-});
-function celebrate(detail){
-  const layer=$('toast-layer');
-  const text=document.createElement('div');text.className='pop-text';
-  text.textContent=detail.leveledUp?`LEVEL ${game.level} ✦`:
-    `+${fmt(detail.total)}${detail.areas.length>1?' · COMBO!':detail.streak>1?' · STREAK ×'+detail.multiplier:detail.areas.length?' · CLEAR!':''}`;
-  layer.appendChild(text);text.addEventListener('animationend',()=>text.remove());
-  if(detail.areas.length||detail.leveledUp){
-    for(let i=0;i<Math.min(32,11+detail.areas.length*6);i++){
-      const spark=document.createElement('i');spark.className='spark';spark.style.setProperty('--spark',['#78f2ff','#fda6e4','#bf9dff','#87ffdb'][i%4]);
-      spark.style.setProperty('--dx',((Math.random()-.5)*380)+'px');spark.style.setProperty('--dy',((Math.random()-.5)*330)+'px');
-      layer.appendChild(spark);spark.addEventListener('animationend',()=>spark.remove());
+
+  function createTray() {
+    const pieces = [];
+    for (let i = 0; i < 3; i += 1) {
+      pieces.push(createPiece(pickShapeIndex()));
+    }
+    if (!pieces.some(piece => canFitAnywhere(piece.shape, game?.board || Array(81).fill(null)))) {
+      pieces[0] = createPiece(0);
+    }
+    return pieces;
+  }
+
+  function pickShapeIndex() {
+    const level = game?.level || 1;
+    const candidates = SHAPES.map((shape, index) => ({ shape, index }))
+      .filter(({ shape }) => {
+        if (level < 3) return shape.size <= 4;
+        if (level < 7) return shape.size <= 5;
+        if (level < 12) return shape.size <= 6;
+        return true;
+      });
+    return candidates[Math.floor(Math.random() * candidates.length)].index;
+  }
+
+  function loadGame() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+      if (!saved || !Array.isArray(saved.board) || !Array.isArray(saved.tray)) return null;
+      return {
+        board: saved.board,
+        tray: saved.tray.map(item => item ? ({ id: item.id || cryptoRandomId(), shapeIndex: item.shapeIndex, shape: SHAPES[item.shapeIndex], color: item.color || COLORS[0] }) : null),
+        score: Number(saved.score) || 0,
+        level: Math.max(1, Number(saved.level) || 1),
+        streak: Math.max(0, Number(saved.streak) || 0),
+        moves: Math.max(0, Number(saved.moves) || 0),
+        over: Boolean(saved.over)
+      };
+    } catch {
+      return null;
     }
   }
-}
-function playSound(kind){
-  if(!sound)return;
-  try{const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)return;
-    audio=audio||new Audio();if(audio.state==='suspended')audio.resume();
-    const now=audio.currentTime,base=kind==='level'?530:kind==='clear'?420:kind==='combo'?480:330;
-    const count=kind==='place'?1:3;
-    for(let i=0;i<count;i++){
-      const oscillator=audio.createOscillator(),volume=audio.createGain();oscillator.type='sine';
-      oscillator.frequency.setValueAtTime(base*(1+i*.24),now+i*.075);
-      volume.gain.setValueAtTime(.0001,now+i*.075);volume.gain.exponentialRampToValueAtTime(.042,now+i*.075+.025);
-      volume.gain.exponentialRampToValueAtTime(.0001,now+i*.075+.2);
-      oscillator.connect(volume);volume.connect(audio.destination);oscillator.start(now+i*.075);oscillator.stop(now+i*.075+.21);
+
+  function saveGame() {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      board: game.board,
+      tray: game.tray.map(piece => piece ? ({ id: piece.id, shapeIndex: piece.shapeIndex, color: piece.color }) : null),
+      score: game.score,
+      level: game.level,
+      streak: game.streak,
+      moves: game.moves,
+      over: game.over
+    }));
+    localStorage.setItem(BEST_KEY, String(bestScore));
+    localStorage.setItem(SOUND_KEY, soundOn ? 'on' : 'off');
+  }
+
+  function bindEvents() {
+    els.tray.addEventListener('click', onTrayClick);
+    els.board.addEventListener('click', onBoardClick);
+    els.tray.addEventListener('pointerdown', onPiecePointerDown);
+    window.addEventListener('pointermove', onPointerMove, { passive: false });
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', cancelDrag);
+    window.addEventListener('resize', () => { if (dragState) updateDragPreview(dragState.clientX, dragState.clientY); });
+
+    els.soundButton.addEventListener('click', toggleSound);
+    els.settingsButton.addEventListener('click', openSettings);
+    els.homeButton.addEventListener('click', () => location.reload());
+    els.toggleSoundModal.addEventListener('click', toggleSound);
+    els.restartGameButton.addEventListener('click', () => { restartGame(); closeSettings(); });
+    els.closeSettingsButton.addEventListener('click', closeSettings);
+    els.modal.addEventListener('click', event => {
+      if (event.target === els.modal) closeSettings();
+    });
+    window.addEventListener('keydown', event => {
+      if (event.key === 'Escape') closeSettings();
+    });
+  }
+
+  function onTrayClick(event) {
+    const slot = event.target.closest('.piece-slot');
+    if (!slot) return;
+    const pieceId = slot.dataset.pieceId;
+    const piece = game.tray.find(item => item && item.id === pieceId);
+    if (!piece || game.over) return;
+    selectedPieceId = selectedPieceId === pieceId ? null : pieceId;
+    preview = null;
+    renderTray();
+    renderBoard();
+  }
+
+  function onBoardClick(event) {
+    if (!selectedPieceId || game.over) return;
+    const cell = event.target.closest('.cell');
+    if (!cell) return;
+    const piece = findPiece(selectedPieceId);
+    if (!piece) return;
+    const index = Number(cell.dataset.index);
+    const anchor = { x: index % BOARD_SIZE, y: Math.floor(index / BOARD_SIZE) };
+    attemptPlacement(piece, anchor.x, anchor.y);
+  }
+
+  function onPiecePointerDown(event) {
+    const slot = event.target.closest('.piece-slot');
+    if (!slot || game.over) return;
+    const pieceId = slot.dataset.pieceId;
+    const piece = findPiece(pieceId);
+    if (!piece) return;
+
+    selectedPieceId = pieceId;
+    renderTray();
+
+    const unit = getPieceUnit(piece.shape);
+    const ghost = buildDragPiece(piece, unit);
+    els.dragLayer.replaceChildren(ghost);
+
+    dragState = {
+      pieceId,
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      unit,
+      ghost,
+      piece
+    };
+
+    if (slot.setPointerCapture) {
+      try { slot.setPointerCapture(event.pointerId); } catch {}
     }
-  }catch{}
-}
-function placeAt(slot,x,y){
-  const result=E.place(game,slot,x,y);
-  if(!result)return false;
-  game=result.state;selected=null;preview=null;
-  records.best=Math.max(records.best,game.score);records.highestLevel=Math.max(records.highestLevel,game.level);
-  const detail=result.detail;clearing=new Set(detail.indices);const thisAnimation=++animationId;
-  setTimeout(()=>{if(thisAnimation===animationId){clearing.clear();renderBoard();}},480);
-  save();render();celebrate(detail);
-  playSound(detail.leveledUp?'level':detail.areas.length>1?'combo':detail.areas.length?'clear':'place');
-  if(game.gameOver){clearTimeout(gameOverTimer);gameOverTimer=setTimeout(()=>{if(game.gameOver)showGameOver();},850);}
-  return true;
-}
-function openDialog(title,icon,content,buttons){
-  $('dialog-title').textContent=title;$('dialog-icon').textContent=icon;$('dialog-body').innerHTML=content;
-  const actions=$('dialog-actions');actions.replaceChildren();
-  for(const entry of buttons){const b=document.createElement('button');b.type='button';b.textContent=entry.text;
-    b.className='action'+(entry.primary?' primary':'');b.addEventListener('click',entry.click);actions.appendChild(b);}
-  modal.hidden=false;actions.querySelector('button')?.focus();
-}
-function closeDialog(){modal.hidden=true;}
-function startNew(){
-  clearTimeout(gameOverTimer);game=E.newGame();clearing.clear();animationId++;selected=null;preview=null;
-  save();closeDialog();render();
-}
-function showGameOver(){
-  openDialog('The stars will return','✦',
-    `<div class="dialog-score">${fmt(game.score)}</div><p>Level ${fmt(game.level)} · ${fmt(game.moves)} pieces placed · ${fmt(game.clearedAreas)} areas cleared<br>Personal best: <strong>${fmt(records.best)} points</strong></p>`,
-    [{text:'Play again ✦',primary:true,click:startNew},{text:'Close',click:closeDialog}]);
-}
-$('new-button').addEventListener('click',()=>openDialog('Start a new journey?','✧','<p>Your current score and board will reset. Your personal best and highest level will remain saved.</p>',[
-  {text:'New game ✦',primary:true,click:startNew},{text:'Keep playing',click:closeDialog}
-]));
-$('sound-button').addEventListener('click',()=>{sound=!sound;try{localStorage.setItem(SOUND,JSON.stringify(sound));}catch{}render();if(sound)playSound('place');});
-$('help-button').addEventListener('click',()=>openDialog('How to play','✧',
-  '<p>Select any piece and tap its <strong>top-left destination</strong> on the grid, or drag from the piece tray. Pieces cannot rotate. Complete any full row, column, or 3×3 square to clear it.</p><p><strong>Scoring:</strong> +1 per placed square; +2 per unique cleared square multiplied by a consecutive clear streak (maximum ×5); +12 per extra area cleared on the same move. Overlapping cleared squares count only once.</p><p>Use all three pieces to refill the tray. Advance through unlimited score-based levels without resetting the board. The run ends when no remaining piece fits.</p>',
-  [{text:'Let’s play ✦',primary:true,click:closeDialog}]));
-modal.addEventListener('click',event=>{if(event.target===modal)closeDialog();});
-document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!modal.hidden)closeDialog();});
-makeBoard();load();
+
+    updateDragPreview(event.clientX, event.clientY);
+  }
+
+  function onPointerMove(event) {
+    if (!dragState || event.pointerId !== dragState.pointerId) return;
+    dragState.clientX = event.clientX;
+    dragState.clientY = event.clientY;
+    event.preventDefault();
+    updateDragPreview(event.clientX, event.clientY);
+  }
+
+  function onPointerUp(event) {
+    if (!dragState || event.pointerId !== dragState.pointerId) return;
+    const piece = dragState.piece;
+    const position = getBoardAnchorFromPointer(event.clientX, event.clientY, piece.shape);
+    const dropped = position && attemptPlacement(piece, position.x, position.y, true);
+    cancelDrag();
+    if (!dropped) {
+      renderBoard();
+      renderTray();
+    }
+  }
+
+  function cancelDrag() {
+    if (!dragState) return;
+    dragState = null;
+    els.dragLayer.replaceChildren();
+    preview = null;
+    renderBoard();
+  }
+
+  function findPiece(pieceId) {
+    return game.tray.find(piece => piece && piece.id === pieceId) || null;
+  }
+
+  function buildDragPiece(piece, unit) {
+    const grid = document.createElement('div');
+    grid.className = 'drag-piece';
+    grid.style.setProperty('--piece-unit', `${unit}px`);
+    grid.style.gridTemplateColumns = `repeat(${piece.shape.width}, max-content)`;
+    grid.style.gridTemplateRows = `repeat(${piece.shape.height}, max-content)`;
+
+    for (let y = 0; y < piece.shape.height; y += 1) {
+      for (let x = 0; x < piece.shape.width; x += 1) {
+        const cell = document.createElement('div');
+        const filled = piece.shape.cells.some(([cx, cy]) => cx === x && cy === y);
+        cell.className = `drag-piece-cell ${filled ? `filled color-${piece.color}` : 'empty'}`;
+        grid.appendChild(cell);
+      }
+    }
+    return grid;
+  }
+
+  function updateDragPreview(clientX, clientY) {
+    if (!dragState) return;
+    dragState.ghost.style.left = `${clientX}px`;
+    dragState.ghost.style.top = `${clientY}px`;
+
+    const anchor = getBoardAnchorFromPointer(clientX, clientY, dragState.piece.shape);
+    if (!anchor) {
+      preview = null;
+    } else {
+      preview = {
+        pieceId: dragState.piece.id,
+        x: anchor.x,
+        y: anchor.y,
+        valid: canPlace(dragState.piece.shape, anchor.x, anchor.y)
+      };
+    }
+    renderBoard();
+  }
+
+  function getBoardAnchorFromPointer(clientX, clientY, shape) {
+    const rect = els.board.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return null;
+    const cellSize = rect.width / BOARD_SIZE;
+    const rawX = Math.floor((clientX - rect.left) / cellSize - shape.width / 2 + 0.5);
+    const rawY = Math.floor((clientY - rect.top) / cellSize - shape.height / 2 + 0.5);
+    return {
+      x: Math.max(0, Math.min(BOARD_SIZE - shape.width, rawX)),
+      y: Math.max(0, Math.min(BOARD_SIZE - shape.height, rawY))
+    };
+  }
+
+  function canPlace(shape, x, y) {
+    return shape.cells.every(([dx, dy]) => {
+      const bx = x + dx;
+      const by = y + dy;
+      if (bx < 0 || bx >= BOARD_SIZE || by < 0 || by >= BOARD_SIZE) return false;
+      return !game.board[by * BOARD_SIZE + bx];
+    });
+  }
+
+  function canFitAnywhere(shape, board) {
+    for (let y = 0; y <= BOARD_SIZE - shape.height; y += 1) {
+      for (let x = 0; x <= BOARD_SIZE - shape.width; x += 1) {
+        const ok = shape.cells.every(([dx, dy]) => !board[(y + dy) * BOARD_SIZE + x + dx]);
+        if (ok) return true;
+      }
+    }
+    return false;
+  }
+
+  function attemptPlacement(piece, x, y, fromDrag = false) {
+    if (!canPlace(piece.shape, x, y)) return false;
+
+    piece.shape.cells.forEach(([dx, dy]) => {
+      game.board[(y + dy) * BOARD_SIZE + x + dx] = piece.color;
+    });
+
+    const clear = getClearResult();
+    let moveScore = piece.shape.size;
+
+    if (clear.sections > 0) {
+      game.streak += 1;
+      const multiplier = Math.min(game.streak, 5);
+      moveScore += clear.uniqueCells.length * 2 * multiplier;
+      moveScore += Math.max(0, clear.sections - 1) * 12;
+      clear.uniqueCells.forEach(index => {
+        game.board[index] = null;
+      });
+      playTone('clear');
+    } else {
+      game.streak = 0;
+      playTone('place');
+    }
+
+    game.score += moveScore;
+    bestScore = Math.max(bestScore, game.score);
+    game.moves += 1;
+    game.level = scoreToLevel(game.score);
+    game.tray = game.tray.map(item => item && item.id === piece.id ? null : item);
+
+    if (game.tray.every(item => item === null)) {
+      game.tray = createTray();
+    }
+
+    if (!game.tray.some(item => item && canFitAnywhere(item.shape, game.board))) {
+      game.over = true;
+    }
+
+    selectedPieceId = null;
+    preview = null;
+    if (fromDrag) cancelDrag();
+    saveGame();
+    render();
+
+    if (game.over) {
+      setTimeout(() => {
+        alert(`Game over. Score: ${game.score}`);
+      }, 60);
+    }
+
+    return true;
+  }
+
+  function getClearResult() {
+    const rows = [];
+    const cols = [];
+    const boxes = [];
+    const set = new Set();
+
+    for (let y = 0; y < BOARD_SIZE; y += 1) {
+      const full = Array.from({ length: BOARD_SIZE }, (_, x) => game.board[y * BOARD_SIZE + x]).every(Boolean);
+      if (full) {
+        rows.push(y);
+        for (let x = 0; x < BOARD_SIZE; x += 1) set.add(y * BOARD_SIZE + x);
+      }
+    }
+
+    for (let x = 0; x < BOARD_SIZE; x += 1) {
+      const full = Array.from({ length: BOARD_SIZE }, (_, y) => game.board[y * BOARD_SIZE + x]).every(Boolean);
+      if (full) {
+        cols.push(x);
+        for (let y = 0; y < BOARD_SIZE; y += 1) set.add(y * BOARD_SIZE + x);
+      }
+    }
+
+    for (let by = 0; by < 3; by += 1) {
+      for (let bx = 0; bx < 3; bx += 1) {
+        const indices = [];
+        for (let dy = 0; dy < 3; dy += 1) {
+          for (let dx = 0; dx < 3; dx += 1) {
+            indices.push((by * 3 + dy) * BOARD_SIZE + (bx * 3 + dx));
+          }
+        }
+        if (indices.every(index => game.board[index])) {
+          boxes.push([bx, by]);
+          indices.forEach(index => set.add(index));
+        }
+      }
+    }
+
+    return {
+      sections: rows.length + cols.length + boxes.length,
+      uniqueCells: Array.from(set)
+    };
+  }
+
+  function scoreToLevel(score) {
+    return 1 + Math.floor(score / 250);
+  }
+
+  function render() {
+    els.score.textContent = String(game.score);
+    els.best.textContent = String(bestScore);
+    els.level.textContent = String(game.level);
+    els.soundButton.setAttribute('aria-pressed', String(soundOn));
+    els.toggleSoundModal.textContent = `Sound: ${soundOn ? 'On' : 'Off'}`;
+    renderBoard();
+    renderTray();
+  }
+
+  function renderBoard() {
+    const previewIndices = new Map();
+    if (preview && preview.pieceId) {
+      const piece = findPiece(preview.pieceId) || dragState?.piece;
+      if (piece) {
+        piece.shape.cells.forEach(([dx, dy]) => {
+          previewIndices.set((preview.y + dy) * BOARD_SIZE + preview.x + dx, preview.valid ? 'preview-valid' : 'preview-invalid');
+        });
+      }
+    }
+
+    els.board.replaceChildren();
+    for (let y = 0; y < BOARD_SIZE; y += 1) {
+      for (let x = 0; x < BOARD_SIZE; x += 1) {
+        const index = y * BOARD_SIZE + x;
+        const value = game.board[index];
+        const cell = document.createElement('button');
+        cell.type = 'button';
+        cell.className = 'cell';
+        cell.dataset.index = String(index);
+
+        const region = ((Math.floor(x / 3) + Math.floor(y / 3)) % 2) === 1;
+        if (region) cell.classList.add('region');
+        if (x === 2 || x === 5) cell.classList.add('right-divider');
+        if (y === 2 || y === 5) cell.classList.add('bottom-divider');
+        if (value) cell.classList.add('placed', `color-${value}`);
+        if (previewIndices.has(index)) cell.classList.add(previewIndices.get(index));
+
+        els.board.appendChild(cell);
+      }
+    }
+  }
+
+  function renderTray() {
+    els.tray.replaceChildren();
+    game.tray.forEach(piece => {
+      const slot = document.createElement('button');
+      slot.type = 'button';
+      slot.className = 'piece-slot';
+      if (!piece) {
+        slot.classList.add('used');
+        slot.disabled = true;
+        els.tray.appendChild(slot);
+        return;
+      }
+      if (selectedPieceId === piece.id) slot.classList.add('selected');
+      slot.dataset.pieceId = piece.id;
+
+      const unit = getPieceUnit(piece.shape);
+      const grid = document.createElement('div');
+      grid.className = 'piece-grid';
+      grid.style.setProperty('--piece-unit', `${unit}px`);
+      grid.style.gridTemplateColumns = `repeat(${piece.shape.width}, max-content)`;
+      grid.style.gridTemplateRows = `repeat(${piece.shape.height}, max-content)`;
+
+      for (let y = 0; y < piece.shape.height; y += 1) {
+        for (let x = 0; x < piece.shape.width; x += 1) {
+          const filled = piece.shape.cells.some(([cx, cy]) => cx === x && cy === y);
+          const cell = document.createElement('div');
+          cell.className = `piece-cell ${filled ? `filled color-${piece.color}` : 'empty'}`;
+          grid.appendChild(cell);
+        }
+      }
+
+      slot.appendChild(grid);
+      els.tray.appendChild(slot);
+    });
+  }
+
+  function getPieceUnit(shape) {
+    const trayWidth = els.tray.clientWidth || Math.min(window.innerWidth - 56, 760);
+    const slotWidth = (trayWidth - 36) / 3;
+    const slotHeight = window.innerWidth <= 480 ? 118 : window.innerWidth <= 720 ? 144 : 168;
+    const hGap = 8;
+    const maxByWidth = Math.floor((slotWidth - 30 - (shape.width - 1) * hGap) / shape.width);
+    const maxByHeight = Math.floor((slotHeight - 30 - (shape.height - 1) * hGap) / shape.height);
+    return Math.max(18, Math.min(maxByWidth, maxByHeight, 44));
+  }
+
+  function toggleSound() {
+    soundOn = !soundOn;
+    saveGame();
+    render();
+    playTone('tap');
+  }
+
+  function openSettings() {
+    els.modal.hidden = false;
+  }
+
+  function closeSettings() {
+    els.modal.hidden = true;
+  }
+
+  function restartGame() {
+    game = newGameState();
+    selectedPieceId = null;
+    preview = null;
+    saveGame();
+    render();
+  }
+
+  function playTone(kind) {
+    if (!soundOn) return;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    if (!audioCtx) audioCtx = new AudioCtx();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+
+    const oscillator = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    oscillator.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    const time = audioCtx.currentTime;
+    const frequency = kind === 'clear' ? 640 : kind === 'tap' ? 520 : 430;
+    oscillator.frequency.setValueAtTime(frequency, time);
+    oscillator.type = 'sine';
+    gain.gain.setValueAtTime(0.0001, time);
+    gain.gain.exponentialRampToValueAtTime(0.06, time + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + (kind === 'clear' ? 0.24 : 0.16));
+    oscillator.start(time);
+    oscillator.stop(time + (kind === 'clear' ? 0.25 : 0.17));
+  }
+
+  function cryptoRandomId() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return `piece-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
 })();
