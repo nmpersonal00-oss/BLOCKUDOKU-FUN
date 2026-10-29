@@ -1,18 +1,13 @@
-# Blockudoku — Cozy Room Edition
+# Blockudoku — Cozy Glow Edition
 
-A static GitHub Pages game matched to the supplied room and interface references.
+Updated mobile-first endless 9×9 puzzle, preserving the supplied candlelit purple room background and minimal game layout.
 
-- Full supplied `background.png`, no additional panels below the tray.
-- Three stats: score, best score, and unlimited level.
-- Fixed 9×9 grid with rows, columns, and 3×3-square clearing.
-- Three-piece tray, tap-to-place, mouse drag and touchscreen drag.
-- Scoring: +1 per placed square, +2 per **unique** cleared square multiplied by consecutive-clear streak (up to ×5), plus +12 per extra completed area on the same move.
-- Local browser save and personal best, audio toggle, settings/new game.
+## Improvements
+- 166 unique fixed-orientation shapes: all 91 fixed polyominoes from 1 to 5 blocks plus larger advanced pieces. Mirrored silhouettes and rotations are included.
+- Three-piece trays aim for different silhouette families, with progressive difficulty at higher levels.
+- Responsive placement: previews update only changed grid cells, not all 81 on every pointer move. Drag ghost moves via compositor transform and tracks without board stretching.
+- More square tile corners (6% instead of 15–17%).
+- Endless scoring, rows/columns/3×3 clears, streaks, combos, best-score saves remain unchanged. Previous saved pieces retain their IDs.
 
-## Install
-
-Upload `index.html`, `style.css`, `engine.js`, `game.js`, `background.png`, and optionally `README.md` / `tests` to the **root** of `BLOCKUDOKU-FUN` on `main`. GitHub Pages source must be `main / (root)`.
-
-## Tests
-
-Run `node --test tests/game.test.cjs` to verify the engine. `index.html` uses versioned script/style URLs to force a fresh deployment cache.
+## Deploy
+Keep `index.html`, `style.css`, `engine.js`, `game.js`, and `background.png` at GitHub Pages repository root. No dependencies or build step. Use `node --test tests/game.test.cjs` to run engine checks.
