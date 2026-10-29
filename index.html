@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#080b20">
+<meta name="description" content="Infinite Glow: an endless neon 9×9 block puzzle with combos, streaks, and unlimited levels.">
+<title>Infinite Glow — Blockudoku</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="cosmos" aria-hidden="true"></div>
+<main class="page">
+  <header class="topbar"><a class="brand" href="./" aria-label="Infinite Glow Home"><span class="brand-icon">✦</span><span><strong>BLOCKUDOKU</strong><small>INFINITE GLOW EDITION</small></span></a><span class="endless"><i></i> ENDLESS MODE</span></header>
+  <section class="hero"><div class="eyebrow">✧ A LITTLE COSMIC PUZZLE MAGIC ✧</div><h1>Infinite <em>Glow</em></h1><p>Find your flow. Clear the stars. Keep going forever.</p></section>
+  <div class="layout">
+    <section class="game-card" aria-label="Blockudoku game">
+      <div class="stats">
+        <div class="stat score-stat"><span>SCORE</span><strong id="score">0</strong></div>
+        <div class="stat"><span>BEST SCORE</span><strong id="best">0</strong></div>
+        <div class="stat"><span>LEVEL</span><strong id="level">1</strong></div>
+      </div>
+      <div class="level-line"><strong id="level-name">LEVEL 1 · COSMIC BEGINNER</strong><span id="level-progress">0 / 250 XP</span></div>
+      <div id="progress" role="progressbar" aria-label="Level progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" class="progress"><div id="progress-bar"></div></div>
+      <div id="board-shell" class="board-shell"><div id="board" class="board" role="grid" aria-label="Nine by nine block puzzle board"></div><div id="toast-layer" class="toast-layer" aria-hidden="true"></div></div>
+      <p id="hint" class="hint" aria-live="polite">Choose a piece, then tap the board or drag it into place.</p>
+      <div class="tray-top"><strong>YOUR PIECES</strong><small>Use all 3 to refresh</small></div>
+      <div id="tray" class="tray" aria-label="Pieces to place"></div>
+      <div class="actions"><button id="new-button" class="action primary" type="button">✦ New game</button><button id="sound-button" class="action" type="button" aria-pressed="true">♫ Sound on</button><button id="help-button" class="action" type="button">? How to play</button></div>
+    </section>
+    <aside class="guide">
+      <div class="kicker">THE CONSTELLATION GUIDE</div><h2>Make space<br>for <em>magic.</em></h2>
+      <p class="lead">A relaxing puzzle with a tricky little twist. Place the shapes thoughtfully, watch them light up, and keep your board breathing.</p>
+      <div class="guide-steps">
+        <p><b>01</b><span>Choose one of your <strong>three pieces</strong> and place it in empty cells. Pieces cannot be rotated.</span></p>
+        <p><b>02</b><span>Complete a <strong>row, column, or 3×3 square</strong> to clear it from the board.</span></p>
+        <p><b>03</b><span>Clear several areas at once for <strong>combo</strong> points. Clear on consecutive moves to build a <strong>streak.</strong></span></p>
+        <p><b>∞</b><span><strong>No level cap.</strong> A run ends when none of the remaining pieces fits.</span></p>
+      </div>
+      <div class="divider"></div>
+      <h3>HOW POINTS ADD UP</h3>
+      <div class="rules"><div><span>Each square placed</span><strong>+1</strong></div><div><span>Each unique square cleared</span><strong>+2 × streak</strong></div><div><span>Each additional area cleared</span><strong>+12</strong></div><div><span>Consecutive clear multiplier</span><strong>×1 to ×5</strong></div><div><span>Move without a clear</span><strong>Reset streak</strong></div></div>
+      <div class="streak" id="streak">✧ Clear streak · ×1</div>
+      <div class="divider"></div>
+      <h3>YOUR JOURNEY</h3><div class="ministats"><div><strong id="areas">0</strong><small>AREAS CLEARED</small></div><div><strong id="moves">0</strong><small>PIECES PLACED</small></div><div><strong id="peak">0</strong><small>BEST STREAK</small></div><div><strong id="record-level">1</strong><small>HIGHEST LEVEL</small></div></div>
+    </aside>
+  </div>
+  <footer>Made with stardust ✧ Progress saves automatically in this browser · No timer, no level limit</footer>
+</main>
+<div id="piece-ghost" class="piece-ghost" aria-hidden="true"></div>
+<div id="dialog-backdrop" class="dialog-backdrop" hidden><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title"><div id="dialog-icon" class="dialog-icon">✧</div><h2 id="dialog-title">New game?</h2><div id="dialog-body"></div><div id="dialog-actions" class="dialog-actions"></div></div></div>
+<script src="engine.js"></script><script src="game.js"></script>
+</body>
+</html>
